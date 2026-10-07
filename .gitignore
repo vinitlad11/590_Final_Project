@@ -1,0 +1,27 @@
+# Python environment and generated files
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Private settings, downloaded data, model files and experiment outputs
+.env
+.env.*
+data/raw/
+data/processed/
+data/cache*/
+data/experiments/
+results/
+model_cache/
+*.safetensors
+*.bin
+*.pt
+*.pkl
+*.zip
+
+# Correspondence and planning belong outside the repository
+stage_01_private/
+private_notes/
+professor_documents/

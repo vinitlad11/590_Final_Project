@@ -1,0 +1,5 @@
+# Direct dependency versions used for package verification on 6 October 2026.
+numpy==2.3.5
+scikit-learn==1.8.0
+matplotlib==3.10.8
+PyYAML==6.0.3
