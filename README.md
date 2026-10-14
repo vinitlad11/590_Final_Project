@@ -1,45 +1,50 @@
 # Adaptive QA
 
-A research prototype for choosing when to answer a quizbowl question, retrieve evidence, or abstain under a computational budget.
+A research prototype for deciding when to answer a quizbowl question, retrieve evidence, or abstain under a computational budget.
 
 ## Current implementation
 
-The foundation code loads text-only questions, creates partial-question observations, keeps observations from the same question in one data split, and checks answers against accepted aliases. Configuration validation and seven foundation tests are included.
+Stage 2 includes question loading and prefixes, answer parsing, persistent generation caches, BM25 retrieval, bounded collection of candidate and retrieved answers, and descriptive consistency/cost reports. There are 22 software tests. The learned controller is introduced in a later stage.
 
-The questions in `data/fixtures/` are synthetic test fixtures. They are used to check software behavior. Real QANTA model performance is measured in later experiments.
+The real setup check uses QANTA 2021, `Qwen/Qwen2.5-0.5B-Instruct` and free Google Colab. Repeated generations are consistency signals. Calibration is disabled in the pilot configuration. Matching answers can still be wrong.
 
-## Project structure
+## Install and test
 
-| Path | Purpose |
-|---|---|
-| `src/adaptive_qa/data/` | Question loading, prefixes and question-level splits |
-| `src/adaptive_qa/evaluation/answers.py` | Answer normalization and scoring |
-| `src/adaptive_qa/config.py` | Configuration defaults and validation |
-| `src/adaptive_qa/io.py` | File and hashing utilities |
-| `tests/test_foundations.py` | Foundation checks |
-| `scripts/run_tests.py` | Test runner |
-| `data/fixtures/questions.jsonl` | Synthetic questions for software checks |
-
-## Setup and tests
-
-Use Python 3.11 or newer. Run the following from this directory in Windows PowerShell:
+Python 3.11 or newer is required. From this project directory in PowerShell, use the environment you created in Stage 1:
 
 ```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -e .
 .\.venv\Scripts\python.exe scripts/run_tests.py
 ```
 
-If you use Python 3.12, replace `py -3.11` with `py -3.12`. On macOS or Linux:
+For a fresh environment, first run `py -3.11 -m venv .venv` (or use your installed Python version). On macOS/Linux use `.venv/bin/python` in place of the Windows executable. A successful run ends with `Ran 22 tests` and `OK`.
 
-```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python scripts/run_tests.py
-```
+GPU and data preparation dependencies are installed in Colab with `python -m pip install -e ".[gpu,data]"`. They are not required for the local fixture tests.
 
-A successful run ends with `Ran 7 tests` and `OK`. `requirements-tested.txt` records the direct dependency versions used to verify this package; `requirements.txt` gives the compatible ranges.
+## Run the real setup check
 
-## Planned next step
+Open `notebooks/STAGE_02_SETUP10.ipynb` in Google Colab and run cells individually. It prepares and freezes reviewed QANTA data, builds an independent Wikipedia corpus, pins the model revision, collects ten questions and produces a descriptive report. Human review steps precede inference.
 
-The next stage adds a compact model, BM25 retrieval and a ten-question QANTA 2021 setup check on free Colab. Repeated generations will be treated as consistency signals. Formal confidence calibration is deferred until after pilot review.
+The configuration uses two independent prefixes (half and full question text), two generations at each observation, and at most one retrieval. BM25 returns up to three 150-word passages. A request is limited to 2,048 input tokens and 128 output tokens. The complete ten-question collection has at most 100 unique generation requests with unchanged settings and preserved caches; failed attempts or changed settings can add actual work.
+
+## Main files
+
+| Path | Purpose |
+|---|---|
+| `configs/colab_qanta2021_pilot10.yaml` | Real ten-question configuration |
+| `configs/fixture_core_check.yaml` | Synthetic software-check configuration |
+| `notebooks/STAGE_02_SETUP10.ipynb` | Executable Colab workflow |
+| `scripts/prepare_qanta_public.py` | Public data download, review and freeze |
+| `scripts/build_wikipedia_corpus.py` | Fixed evidence corpus and source records |
+| `src/adaptive_qa/llm/` | Generation backends, prompts and parsing |
+| `src/adaptive_qa/retrieval/` | BM25 retrieval and evidence features |
+| `src/adaptive_qa/outcomes.py` | Bounded answer and retrieval collection |
+| `src/adaptive_qa/pilot.py` | Consistency and usage diagnostics |
+
+The CLI commands for this stage are `prepare`, `estimate`, `baseline`, `collect` and `pilot-report`; `scripts/verify_collection.py` checks accounting and tree structure. Controller fitting is introduced in a later stage.
+
+## Data and generated outputs
+
+Files in `data/fixtures/` are synthetic software fixtures. Real data, model weights, caches and run outputs are excluded from Git. Colab keeps working data and results in Drive for resuming and backup. Keep downloaded reports, test logs and correspondence in your separate private folder.
+
+Software checks establish pipeline behavior. Real model quality, retrieval coverage, memory use and runtime must be measured in the ten-question setup check.

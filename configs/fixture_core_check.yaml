@@ -1,0 +1,19 @@
+# Software verification for the narrowed pilot; never real research results.
+experiment_id: fixture_consistency_check
+fractions: [0.5, 1.0]
+model:
+  samples: 2
+controller:
+  actions: [RETRIEVE]
+  max_steps: 1
+evaluation:
+  include_wait: false
+reward:
+  correct: 1.0
+  incorrect: -2.0
+  abstain: 0.0
+cache_dir: data/cache_core_check
+
+# Repeated answers are consistency signals, not correctness probabilities.
+calibration:
+  enabled: false
