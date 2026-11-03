@@ -28,23 +28,26 @@ def main():
         if c["model"]["backend"] != "fixture" and not args.execute_model:
             raise ValueError("Review the estimate command, then pass --execute-model to execute local/API calls")
         manifest(c, out)
-        if args.command == "collect":
-            from adaptive_qa.outcomes import collect_outcomes
-            from adaptive_qa.controller.utility import CostModel
-            from adaptive_qa.controller.oracle import action_outcome_rows
-            from adaptive_qa.io import write_jsonl
-            rows, roots, _ = collect_outcomes(c, out)
-            cm = CostModel(c["cost"], c["reward"])
-            write_jsonl(out / "action_outcomes.jsonl", action_outcome_rows({r["node_id"]:r for r in rows}, roots, cm, c["lambdas"][0]))
-            print(f"Saved {len(rows)} observed nodes. Dataset: {c['dataset']['name']}. Output: {out}")
-            return
-        rows = run_baseline(c, out)
-        if c["calibration"]["enabled"]:
-            fit_baseline_calibration(rows, out, c["thresholds"], c["evaluation"]["include_wait"])
-        else:
+        from adaptive_qa.sessions import record_invocation
+        with record_invocation(c, out, args.command):
+            if args.command == "collect":
+                from adaptive_qa.outcomes import collect_outcomes
+                from adaptive_qa.controller.utility import CostModel
+                from adaptive_qa.controller.oracle import action_outcome_rows
+                from adaptive_qa.io import write_jsonl
+                rows, roots, _ = collect_outcomes(c, out)
+                cm = CostModel(c["cost"], c["reward"])
+                write_jsonl(out / "action_outcomes.jsonl", action_outcome_rows({r["node_id"]:r for r in rows}, roots, cm, c["lambdas"][0]))
+                print(f"Saved {len(rows)} observed nodes. Dataset: {c['dataset']['name']}. Output: {out}")
+                return
+            rows = run_baseline(c, out)
+            if c["calibration"]["enabled"]:
+                fit_baseline_calibration(rows, out, c["thresholds"], c["evaluation"]["include_wait"])
+        if not c["calibration"]["enabled"]:
             from adaptive_qa.pilot import pilot_report
             pilot_report(c, out)
         print(f"Saved {len(rows)} prefix predictions. Dataset: {c['dataset']['name']}. Output: {out}")
+
 
 
 if __name__ == "__main__":

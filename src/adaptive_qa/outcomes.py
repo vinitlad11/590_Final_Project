@@ -54,8 +54,12 @@ def collect_outcomes(c, out):
     rows, roots, plain_rows = [], [], []
     for qi, q in enumerate(questions, 1):
         for state in make_states(q, c["fractions"]):
-            # Independent answer-only prompt: the direct baseline is not forced to buy confidence.
-            plain_gen = llm.answer(state.question_text, c["model"]["temperature"], seed_for(c, state.state_id, "plain", 0))
+            # Independent direct sample: one call, with no repeat or retrieval cost.
+            from adaptive_qa.llm.prompts import build_prompt
+            plain_prompt = build_prompt(state.question_text, confidence=False,
+                                        version=c["model"].get("prompt_version", "qa-v1"))
+            plain_gen = llm.generate(plain_prompt, c["model"]["temperature"],
+                                     seed_for(c, state.state_id, "plain", 0), False)
             plain = parse_answer(plain_gen.raw, confidence=False)
             plain_record = asdict(plain_gen)
             plain_record.pop("cache_hit")

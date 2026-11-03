@@ -1,0 +1,45 @@
+experiment_id: qanta2021_stage03_pilot50_answer_v2
+seed: 42
+dataset:
+  name: QANTA_2021_12_20_PILOT_DEVELOPMENT
+  path: data/processed/qanta2021/pilot50.jsonl
+  split_manifest: data/processed/qanta2021/pilot50_splits.json
+  limit_questions: null
+fractions:
+- 0.5
+- 1.0
+model:
+  backend: huggingface
+  name: Qwen/Qwen2.5-0.5B-Instruct
+  revision: 7ae557604adf67be50417f59c2c2f167def9a775
+  device: cuda
+  samples: 2
+  temperature: 0.2
+  sample_temperature: 0.7
+  max_input_tokens: 2048
+  max_output_tokens: 128
+  prompt_version: qa-answer-v2
+retrieval:
+  corpus: data/raw/evidence_corpus_qanta2021.jsonl
+  top_k: 3
+  max_doc_words: 150
+controller:
+  actions:
+  - RETRIEVE
+  max_steps: 1
+evaluation:
+  include_wait: false
+reward:
+  correct: 1.0
+  incorrect: -2.0
+  abstain: 0.0
+cost:
+  dollars_weight: 0.0
+  input_usd_per_million: null
+  output_usd_per_million: null
+budget:
+  max_new_calls: 500
+  estimated_input_tokens_per_call: 600
+cache_dir: data/cache_stage03_answer_v2
+calibration:
+  enabled: false

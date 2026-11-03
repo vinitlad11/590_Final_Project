@@ -182,15 +182,22 @@ class HuggingFaceLLM(BaseLLM):
 
 
 class CachedLLM(BaseLLM):
-    def __init__(self, backend, config, cache_dir, max_new_calls=5000):
+    def __init__(self, backend, config, cache_dir, max_new_calls=5000, ledger_path=None):
         self.backend, self.config = backend, config
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.max_new_calls, self.new_calls, self.hits = max_new_calls, 0, 0
         self.incurred = Usage()
+        self.successful_calls, self.failed_calls, self.pending_calls = 0, 0, 0
+        self.ledger_path = Path(ledger_path) if ledger_path else None
+        self._save_usage()
+
+    def _save_usage(self):
+        if self.ledger_path:
+            write_json(self.ledger_path, self.usage())
 
     def generate(self, prompt, temperature, seed, confidence=True):
-        key = digest({"schema": 1, "prompt_version": PROMPT_VERSION, "model": self.config,
+        key = digest({"schema": 1, "prompt_version": self.config.get("prompt_version", PROMPT_VERSION), "model": self.config,
                       "prompt": prompt, "temperature": temperature, "seed": seed, "confidence": confidence,
                       "endpoint": getattr(self.backend, "host", None), "resolved_backend":getattr(self.backend, "identity", None)})
         path = self.cache_dir / (key + ".json")
@@ -198,17 +205,32 @@ class CachedLLM(BaseLLM):
             row = json.loads(path.read_text(encoding="utf-8"))
             row["usage"] = Usage(**row["usage"])
             self.hits += 1
+            self._save_usage()
             return replace(Generation(**row), cache_hit=True)
         if self.new_calls >= self.max_new_calls:
             raise RuntimeError("Call budget exhausted; cached responses are saved. Review estimate before increasing budget")
-        self.new_calls += 1  # Failed attempts still consume the request budget. Never retry invisibly.
-        result = self.backend.generate(prompt, temperature, seed, confidence)
+        self.new_calls += 1  # Failed attempts consume the per-invocation budget.
+        self.pending_calls += 1
+        self._save_usage()  # A hard interruption leaves this attempt marked pending.
+        try:
+            result = self.backend.generate(prompt, temperature, seed, confidence)
+        except BaseException:
+            self.pending_calls -= 1
+            self.failed_calls += 1
+            self._save_usage()
+            raise
+        self.pending_calls -= 1
+        self.successful_calls += 1
         self.incurred += result.usage
+        self._save_usage()
         write_json(path, asdict(result))
         return result
 
     def usage(self):
         return {"new_calls": self.new_calls, "cache_hits": self.hits, "incurred_usage": asdict(self.incurred),
+                "successful_calls": self.successful_calls, "failed_calls": self.failed_calls,
+                "pending_calls": self.pending_calls,
+                "accounting_note": "new_calls counts attempted backend invocations. Tokens/latency cover successful responses only; failed or pending attempt usage is unknown. Budget applies per invocation.",
                 "model_identity":getattr(self.backend, "identity", {"backend":"fixture"}),
                 "backend_runtime":self.backend.runtime_metrics() if hasattr(self.backend, "runtime_metrics") else {}}
 
@@ -218,4 +240,4 @@ def make_llm(c):
     mc = c["model"]
     backend = {"fixture": FixtureLLM, "ollama": OllamaLLM, "huggingface": HuggingFaceLLM}[mc["backend"]]
     instance = backend() if mc["backend"] == "fixture" else backend(mc)
-    return CachedLLM(instance, mc, path_for(c, c["cache_dir"]) / "llm", c["budget"]["max_new_calls"])
+    return CachedLLM(instance, mc, path_for(c, c["cache_dir"]) / "llm", c["budget"]["max_new_calls"], c.get("_usage_ledger"))

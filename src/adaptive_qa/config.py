@@ -14,7 +14,7 @@ DEFAULTS = {
     "model": {"backend": "fixture", "name": "scripted-fixture-v1", "revision": "fixture-v1",
               "temperature": 0.2, "sample_temperature": 0.7, "samples": 3,
               "max_output_tokens": 128, "max_input_tokens": 4096,
-              "timeout_seconds": 120, "device": "cpu"},
+              "timeout_seconds": 120, "device": "cpu", "prompt_version": "qa-v1"},
     "retrieval": {"corpus": "data/fixtures/corpus.jsonl", "top_k": 3, "max_doc_words": 180},
     "controller": {"max_steps": 1, "estimators": 80, "min_samples_leaf": 3,
                    "actions": ["RETRIEVE", "DELIBERATE"]},
@@ -59,6 +59,10 @@ def validate(c):
         raise ValueError("evaluation.include_wait must be boolean")
     if not isinstance(c["calibration"]["enabled"], bool):
         raise ValueError("calibration.enabled must be boolean")
+    if c["model"]["prompt_version"] not in {"qa-v1", "qa-answer-v2"}:
+        raise ValueError("Unsupported model.prompt_version")
+    if c["calibration"]["enabled"] and c["model"]["prompt_version"] == "qa-answer-v2":
+        raise ValueError("Answer-only pilot has no verbal confidence; calibration must remain disabled")
     fs = c["fractions"]
     if not fs or fs != sorted(set(fs)) or not all(0 < f <= 1 for f in fs) or fs[-1] != 1:
         raise ValueError("fractions must increase in (0,1] and end at 1")

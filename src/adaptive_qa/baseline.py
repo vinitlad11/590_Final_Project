@@ -33,21 +33,25 @@ def seed_for(c, state_id, path, sample):
 
 def collect_candidate(llm, c, state, action="ANSWER", previous="", documents=(), history=""):
     from adaptive_qa.llm.prompts import build_prompt
-    prompt = build_prompt(state.question_text, action, previous, documents)
+    version = c["model"].get("prompt_version", "qa-v1")
+    with_confidence = version == "qa-v1"
+    prompt = build_prompt(state.question_text, action, previous, documents,
+                          confidence=with_confidence, version=version)
     parsed, generations, usage = [], [], Usage()
     for i in range(c["model"]["samples"]):
         temperature = c["model"]["temperature"] if i == 0 else c["model"]["sample_temperature"]
-        generation = llm.generate(prompt, temperature, seed_for(c, state.state_id, history, i))
+        generation = llm.generate(prompt, temperature, seed_for(c, state.state_id, history, i), with_confidence)
         record = asdict(generation)
         record.pop("cache_hit")  # Operational cache hits belong in the session ledger, not scientific row identity.
         generations.append(record)
-        parsed.append(parse_answer(generation.raw))
+        parsed.append(parse_answer(generation.raw, confidence=with_confidence))
         usage += generation.usage
     first = parsed[0]
     return {"prediction": first.answer, "verbal_confidence": first.confidence,
             "self_consistency": candidate_agreement(first.answer, [p.answer for p in parsed]),
             "repeat_agreement": candidate_agreement(first.answer, [p.answer for p in parsed[1:]]) if len(parsed) > 1 else None,
-            "signal_kind": "consistency_not_probability",
+            "signal_kind": "consistency_not_probability", "prompt_version": version,
+            "response_has_confidence": with_confidence,
             "fraction_revealed": state.fraction_revealed, "parse_valid": first.valid,
             "parse_error": first.error, "usage": asdict(usage), "generations": generations,
             "usage_kind": generations[0]["usage_kind"], "history": history}

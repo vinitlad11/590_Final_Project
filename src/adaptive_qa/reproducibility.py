@@ -16,6 +16,8 @@ def config_snapshot(c):
         snapshot["controller"].pop("actions")
     if snapshot.get("evaluation") == {"include_wait": True}:
         snapshot.pop("evaluation")
+    if snapshot["model"].get("prompt_version") == "qa-v1":
+        snapshot["model"].pop("prompt_version")
     return snapshot
 
 
@@ -49,7 +51,9 @@ def manifest(c, out):
             versions[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
             versions[name] = "not installed"
-    row = {"experiment_id": c["experiment_id"], "timestamp": datetime.now(timezone.utc).isoformat(),
+    receipt_path = root / "results" / "source_archive.json"
+    archive_receipt = json.loads(receipt_path.read_text()) if receipt_path.exists() else None
+    row = {"source_archive": archive_receipt, "experiment_id": c["experiment_id"], "timestamp": datetime.now(timezone.utc).isoformat(),
            "status": "FIXTURE_ONLY_NOT_RESEARCH" if c["model"]["backend"] == "fixture" else "REAL_MODEL_RUN",
            "fingerprint": fingerprint, "files":files, "source_hashes":sources, "git_commit":commit,
            "versions": versions, "config":config_snapshot(c)}
@@ -68,6 +72,11 @@ def check_manifest(c, out):
     for name, key in (("dataset", c["dataset"]["path"]), ("corpus", c["retrieval"]["corpus"])):
         if name in previous["files"] and file_hash(path_for(c, key)) != previous["files"][name]:
             raise ValueError(f"{name} changed since collection")
+    split_path = c["dataset"]["split_manifest"]
+    if split_path and file_hash(path_for(c, split_path)) != previous["files"].get("split_manifest"):
+        raise ValueError("Split manifest changed since collection")
+    if previous["source_hashes"] != source_hashes(c):
+        raise ValueError("Source changed since collection; use the original code to report this run")
     return previous
 
 

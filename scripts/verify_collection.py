@@ -16,7 +16,22 @@ def verify(c, out):
     nodes={r['node_id']:r for r in rows}
     roots=json.loads((out/'root_ids.json').read_text())
     splits=json.loads((out/'split_manifest.json').read_text())
-    assert len(nodes)==len(rows) and len(roots)==len(set(roots))
+    from adaptive_qa.data.load_qanta import load_questions
+    from adaptive_qa.data.preprocess import make_states
+    from adaptive_qa.io import digest
+    questions, _ = load_questions(path_for(c, c['dataset']['path']), c['dataset']['text_only'])
+    questions = sorted(questions, key=lambda q: digest([c['seed'], q.question_id]))
+    if c['dataset']['limit_questions']:
+        questions = questions[:c['dataset']['limit_questions']]
+    expected_states = {s.state_id for q in questions for s in make_states(q, c['fractions'])}
+    if len(nodes) != len(rows) or len(roots) != len(set(roots)):
+        raise ValueError('Duplicate nodes or roots')
+    if {nodes[n]['state_id'] for n in roots} != expected_states or len(roots) != len(expected_states):
+        raise ValueError('Collection does not cover every configured question/prefix')
+    branching = len(c['controller']['actions'])
+    expected_nodes = len(expected_states) * sum(branching**d for d in range(c['controller']['max_steps'] + 1))
+    if len(rows) != expected_nodes:
+        raise ValueError('Incomplete collection tree')
     for nid in roots:
         assert nid in nodes and nodes[nid]['depth']==0
     for row in rows:
