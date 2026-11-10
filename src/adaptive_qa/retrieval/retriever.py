@@ -1,4 +1,4 @@
-"""Fixed-corpus BM25 with inverted postings and corpus-aware durable caching."""
+"""Fixed-corpus BM25 with inverted postings, title weighting, stopword filtering, and durable caching."""
 from collections import Counter, defaultdict
 from pathlib import Path
 import json
@@ -8,9 +8,32 @@ import time
 from adaptive_qa.io import digest, file_hash, read_jsonl, write_json
 from adaptive_qa.llm.model import Usage
 
+STOPWORDS = frozenset({
+    "a", "about", "after", "all", "also", "an", "and", "another", "any", "are", "around", "as", "at",
+    "be", "because", "been", "before", "being", "between", "both", "but", "by", "called", "can", "could",
+    "did", "do", "does", "during", "each", "either", "first", "following", "for", "from", "ftp", "give",
+    "had", "has", "have", "he", "her", "here", "him", "his", "how", "identify", "if", "in", "include",
+    "includes", "including", "into", "is", "it", "its", "later", "known", "made", "make", "many", "may",
+    "more", "most", "much", "must", "my", "name", "named", "near", "no", "not", "now", "of", "on", "one",
+    "only", "or", "other", "others", "our", "out", "over", "own", "part", "people", "person", "place",
+    "point", "points", "same", "see", "several", "she", "should", "since", "so", "some", "such", "take",
+    "takes", "ten", "than", "that", "the", "their", "them", "then", "there", "these", "they", "this",
+    "those", "three", "through", "time", "times", "title", "titled", "to", "two", "under", "up", "upon",
+    "use", "used", "uses", "using", "very", "was", "way", "we", "well", "were", "what", "when", "where",
+    "which", "while", "who", "whom", "whose", "will", "with", "within", "without", "work", "works",
+    "would", "wrote", "written", "year", "years", "10"
+})
+
 
 def tokenize(text):
-    return re.findall(r"\w+", text.casefold())
+    return re.findall(r"\w+", str(text).casefold())
+
+
+def query_terms(query):
+    """Filter quizbowl boilerplate and stopwords when informative clue tokens exist."""
+    tokens = tokenize(query)
+    filtered = [t for t in tokens if t not in STOPWORDS and len(t) > 1]
+    return filtered if filtered else tokens
 
 
 class BM25:
@@ -32,7 +55,10 @@ class BM25:
                 raise ValueError("Corpus must be independent evidence, not benchmark answer records")
             seen.add(doc["document_id"])
             doc["text"] = " ".join(doc["text"].split()[:max_doc_words])
-            counts = Counter(tokenize(doc["text"]))
+            title_text = str(doc.get("title") or "").strip()
+            # Index title tokens with a 2x weight boost so chunks :1, :2, :3 remain strongly linked to their subject.
+            indexed_tokens = tokenize(doc["text"]) + (tokenize(title_text) * 2 if title_text else [])
+            counts = Counter(indexed_tokens)
             if not counts:
                 raise ValueError("Empty corpus document")
             self.lengths.append(sum(counts.values()))
@@ -55,15 +81,28 @@ class BM25:
             self.cache_hits += 1
             return obj["documents"], Usage(retrieval_calls=1, latency_seconds=obj["latency_seconds"])
         start, scores = time.perf_counter(), defaultdict(float)
-        for term in set(tokenize(query)):
+        q_counts = Counter(query_terms(query))
+        for term, q_tf in q_counts.items():
             matches = self.postings.get(term, [])
+            if not matches:
+                continue
             idf = math.log(1 + (len(self.docs) - len(matches) + 0.5) / (len(matches) + 0.5))
+            q_weight = 1.0 + math.log(q_tf)
             for index, count in matches:
                 denom = count + self.k1 * (1 - self.b + self.b * self.lengths[index] / self.avg_length)
-                scores[index] += idf * count * (self.k1 + 1) / denom
+                scores[index] += q_weight * idf * count * (self.k1 + 1) / denom
         best = sorted(scores, key=lambda i: (-scores[i], self.docs[i]["document_id"]))[:top_k]
-        documents = [{"document_id": self.docs[i]["document_id"], "text": self.docs[i]["text"],
-                      "retrieval_score": scores[i], "rank": rank + 1} for rank, i in enumerate(best)]
+        documents = []
+        for rank, i in enumerate(best):
+            item = {
+                "document_id": self.docs[i]["document_id"],
+                "text": self.docs[i]["text"],
+                "retrieval_score": scores[i],
+                "rank": rank + 1,
+            }
+            if self.docs[i].get("title"):
+                item["title"] = self.docs[i]["title"]
+            documents.append(item)
         latency = time.perf_counter() - start
         write_json(cache_path, {"documents": documents, "latency_seconds": latency})
         self.new_calls += 1

@@ -1,11 +1,25 @@
-"""Conservative alias-based matching, not official QANTA adjudication."""
+"""Conservative alias-based matching, with cleanup for trailing parentheticals/attributions."""
 from collections import Counter
 import re
 import unicodedata
 
+_TRAILING_DISAMBIG = re.compile(
+    r"\s*\((?:novel|book|painting|play|poem|story|opera|film|movie|song|composition|piece|"
+    r"state|city|country|river|mountain|volcano|battle|treaty|dynasty|genus|protein|character|"
+    r"band|album|series|sculpture|building|journal|newspaper|philosophy|physics|mathematics|"
+    r"mythology|\d{4}(?:\s+[a-z]+)?)\)\s*$",
+    flags=re.IGNORECASE,
+)
+
+
+def _strip_disambig(text):
+    text = str(text).strip().strip("\"'“”‘’`")
+    text = _TRAILING_DISAMBIG.sub("", text).strip()
+    return text
+
 
 def normalize(text, remove_articles=True):
-    text = unicodedata.normalize("NFKC", str(text)).casefold()
+    text = unicodedata.normalize("NFKC", _strip_disambig(text)).casefold()
     # Preserve symbols: C++ != C, -3 != 3. Strip ordinary punctuation only.
     text = "".join(" " if unicodedata.category(c).startswith("P") and c not in "+-#" else c
                    for c in text)

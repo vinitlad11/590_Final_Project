@@ -1,6 +1,18 @@
 """Deterministic calibration and selective prediction metrics."""
 import numpy as np
-from sklearn.metrics import roc_auc_score
+
+try:
+    from sklearn.metrics import roc_auc_score
+except ImportError:
+    def roc_auc_score(y_true, y_score):
+        y = np.asarray(y_true, dtype=int)
+        s = np.asarray(y_score, dtype=float)
+        pos = s[y == 1]
+        neg = s[y == 0]
+        if len(pos) == 0 or len(neg) == 0:
+            raise ValueError("Need both positive and negative samples for AUROC")
+        diff = pos[:, None] - neg[None, :]
+        return float((np.sum(diff > 0) + 0.5 * np.sum(diff == 0)) / (len(pos) * len(neg)))
 
 
 def calibration_metrics(labels, probabilities, n_bins=10):

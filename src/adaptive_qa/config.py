@@ -59,9 +59,9 @@ def validate(c):
         raise ValueError("evaluation.include_wait must be boolean")
     if not isinstance(c["calibration"]["enabled"], bool):
         raise ValueError("calibration.enabled must be boolean")
-    if c["model"]["prompt_version"] not in {"qa-v1", "qa-answer-v2"}:
+    if c["model"]["prompt_version"] not in {"qa-v1", "qa-answer-v2", "qa-answer-v3", "qa-calibrated-v3"}:
         raise ValueError("Unsupported model.prompt_version")
-    if c["calibration"]["enabled"] and c["model"]["prompt_version"] == "qa-answer-v2":
+    if c["calibration"]["enabled"] and c["model"]["prompt_version"] in {"qa-answer-v2", "qa-answer-v3"}:
         raise ValueError("Answer-only pilot has no verbal confidence; calibration must remain disabled")
     fs = c["fractions"]
     if not fs or fs != sorted(set(fs)) or not all(0 < f <= 1 for f in fs) or fs[-1] != 1:

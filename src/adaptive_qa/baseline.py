@@ -34,7 +34,7 @@ def seed_for(c, state_id, path, sample):
 def collect_candidate(llm, c, state, action="ANSWER", previous="", documents=(), history=""):
     from adaptive_qa.llm.prompts import build_prompt
     version = c["model"].get("prompt_version", "qa-v1")
-    with_confidence = version == "qa-v1"
+    with_confidence = version in {"qa-v1", "qa-calibrated-v3"}
     prompt = build_prompt(state.question_text, action, previous, documents,
                           confidence=with_confidence, version=version)
     parsed, generations, usage = [], [], Usage()

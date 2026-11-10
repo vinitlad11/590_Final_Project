@@ -1,4 +1,4 @@
-"""Reuse reviewed, frozen pilot data without selecting new questions or evidence."""
+"""Reuse reviewed, frozen pilot data without selecting new questions."""
 from pathlib import Path
 import argparse
 import json
@@ -12,6 +12,7 @@ PROCESSED = Path('data/processed/qanta2021')
 CORPUS = Path('data/raw/evidence_corpus_qanta2021.jsonl')
 CORPUS_MANIFEST = Path('data/raw/wikipedia_pilot/corpus_manifest.json')
 FROZEN_FILES = ('pilot10.jsonl', 'pilot10_splits.json', 'pilot50.jsonl', 'pilot50_splits.json')
+IMMUTABLE_PROCESSED = (*FROZEN_FILES, 'frozen_manifest.json', 'answer_review.csv', 'selection.json')
 
 
 def validate_frozen(root):
@@ -51,23 +52,23 @@ def import_frozen(source, destination):
     if source == destination:
         raise ValueError('Stage 3 uses a separate Drive project directory')
     result = validate_frozen(source)
-    paths = [PROCESSED / name for name in (*FROZEN_FILES, 'frozen_manifest.json', 'answer_review.csv', 'selection.json')]
-    paths += [CORPUS, CORPUS_MANIFEST]
+    immutable_paths = [PROCESSED / name for name in IMMUTABLE_PROCESSED]
+    corpus_paths = [CORPUS, CORPUS_MANIFEST]
     for optional in ('data/raw/wikipedia_pilot/title_selection.json', 'data/raw/qanta2021/download_manifest.json'):
         if (source / optional).exists():
-            paths.append(Path(optional))
-    # Validate every destination before copying any file.
-    for relative in paths:
+            corpus_paths.append(Path(optional))
+    # Immutable processed question/split files must always match Stage 2 exactly.
+    for relative in immutable_paths:
         target = destination / relative
         if target.exists() and file_hash(target) != file_hash(source / relative):
-            raise ValueError(f'Destination already has different data: {relative}; preserve it')
-    for relative in paths:
+            raise ValueError(f'Destination already has different question data: {relative}; preserve it')
+    for relative in immutable_paths + corpus_paths:
         target = destination / relative
         if not target.exists():
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source / relative, target)
     result['source_project'] = str(source)
-    result['copied_files'] = {str(p): file_hash(destination / p) for p in paths}
+    result['copied_files'] = {str(p): file_hash(destination / p) for p in immutable_paths + corpus_paths if (destination / p).exists()}
     write_json(destination / 'results/stage2_data_import.json', result)
     validate_frozen(destination)
     return result

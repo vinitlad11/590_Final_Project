@@ -13,6 +13,13 @@ from urllib.parse import urlparse
 from adaptive_qa.io import digest, write_json
 from adaptive_qa.llm.prompts import PROMPT_VERSION, build_prompt
 
+QUIZBOWL_SYSTEM_PROMPT = (
+    "You are an expert Quizbowl question-answering system. "
+    "Always identify the specific unnamed person, work, place, or concept requested by the clues. "
+    "Never answer with an author, artist, composer, character, or example that is already explicitly named in the clues. "
+    "Respond only with the requested JSON object."
+)
+
 
 @dataclass(frozen=True)
 class Usage:
@@ -128,7 +135,7 @@ class OllamaLLM(BaseLLM):
 
 
 class HuggingFaceLLM(BaseLLM):
-    """Optional local backend. GPU_PENDING until tested with an actual checkpoint."""
+    """Local Hugging Face backend with pinned commit revision and Quizbowl system prompt."""
     def __init__(self, config):
         try:
             import torch
@@ -144,10 +151,17 @@ class HuggingFaceLLM(BaseLLM):
         if device == "cuda":
             torch.cuda.reset_peak_memory_stats()
         self.tokenizer = AutoTokenizer.from_pretrained(config["name"], revision=config["revision"], trust_remote_code=False)
-        self.model = AutoModelForCausalLM.from_pretrained(config["name"], revision=config["revision"],
-                            trust_remote_code=False, torch_dtype=torch.float16 if device == "cuda" else torch.float32)
+        dtype = torch.float16 if device == "cuda" else torch.float32
+        try:
+            self.model = AutoModelForCausalLM.from_pretrained(
+                config["name"], revision=config["revision"], trust_remote_code=False, dtype=dtype
+            )
+        except TypeError:
+            self.model = AutoModelForCausalLM.from_pretrained(
+                config["name"], revision=config["revision"], trust_remote_code=False, torch_dtype=dtype
+            )
         self.model.to(device).eval()
-        self.identity = {"revision":config["revision"], "device":device}
+        self.identity = {"revision": config["revision"], "device": device}
 
     def runtime_metrics(self):
         if self.config["device"] != "cuda":
@@ -162,8 +176,13 @@ class HuggingFaceLLM(BaseLLM):
         from transformers import set_seed
         set_seed(seed)
         start = time.perf_counter()
-        inputs = self.tokenizer.apply_chat_template([{"role": "user", "content": prompt}],
-                    tokenize=True, add_generation_prompt=True, return_tensors="pt", return_dict=True)
+        messages = [
+            {"role": "system", "content": QUIZBOWL_SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ]
+        inputs = self.tokenizer.apply_chat_template(
+            messages, tokenize=True, add_generation_prompt=True, return_tensors="pt", return_dict=True
+        )
         inputs = {k: v.to(self.config["device"]) for k, v in inputs.items()}
         n_input = inputs["input_ids"].shape[-1]
         if n_input > self.config["max_input_tokens"]:
@@ -174,8 +193,8 @@ class HuggingFaceLLM(BaseLLM):
             args["temperature"] = temperature
         with self.torch.inference_mode():
             output = self.model.generate(**inputs, **args)[0, n_input:]
-        if self.config["device"] == "cuda":
-            self.torch.cuda.synchronize()
+            if self.config["device"] == "cuda":
+                self.torch.cuda.synchronize()
         raw = self.tokenizer.decode(output, skip_special_tokens=True)
         return Generation(raw, Usage(n_input, len(output), 1, 0, time.perf_counter() - start),
                           self.config["name"] + "@" + self.config["revision"], datetime.now(timezone.utc).isoformat())
@@ -199,7 +218,7 @@ class CachedLLM(BaseLLM):
     def generate(self, prompt, temperature, seed, confidence=True):
         key = digest({"schema": 1, "prompt_version": self.config.get("prompt_version", PROMPT_VERSION), "model": self.config,
                       "prompt": prompt, "temperature": temperature, "seed": seed, "confidence": confidence,
-                      "endpoint": getattr(self.backend, "host", None), "resolved_backend":getattr(self.backend, "identity", None)})
+                      "endpoint": getattr(self.backend, "host", None), "resolved_backend": getattr(self.backend, "identity", None)})
         path = self.cache_dir / (key + ".json")
         if path.exists():
             row = json.loads(path.read_text(encoding="utf-8"))
@@ -231,8 +250,8 @@ class CachedLLM(BaseLLM):
                 "successful_calls": self.successful_calls, "failed_calls": self.failed_calls,
                 "pending_calls": self.pending_calls,
                 "accounting_note": "new_calls counts attempted backend invocations. Tokens/latency cover successful responses only; failed or pending attempt usage is unknown. Budget applies per invocation.",
-                "model_identity":getattr(self.backend, "identity", {"backend":"fixture"}),
-                "backend_runtime":self.backend.runtime_metrics() if hasattr(self.backend, "runtime_metrics") else {}}
+                "model_identity": getattr(self.backend, "identity", {"backend": "fixture"}),
+                "backend_runtime": self.backend.runtime_metrics() if hasattr(self.backend, "runtime_metrics") else {}}
 
 
 def make_llm(c):
