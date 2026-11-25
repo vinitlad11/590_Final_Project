@@ -6,7 +6,7 @@ from adaptive_qa.baseline import prepare, run_baseline, fit_baseline_calibration
 
 def main():
     parser = argparse.ArgumentParser(description="Adaptive QA research pipeline")
-    parser.add_argument("command", choices=["prepare", "estimate", "baseline", "collect", "pilot-report"])
+    parser.add_argument("command", choices=["prepare", "estimate", "baseline", "collect", "pilot-report", "evaluate"])
     parser.add_argument("--config", default="configs/fixture_core_check.yaml")
     parser.add_argument("--execute-model", action="store_true", help="Explicitly run the configured real model after reviewing estimate")
     args = parser.parse_args()
@@ -20,6 +20,10 @@ def main():
     if args.command == "pilot-report":
         from adaptive_qa.pilot import pilot_report
         print(json.dumps(pilot_report(c, out), indent=2))
+        return
+    if args.command == "evaluate":
+        from adaptive_qa.pilot import run_stage4_stage5_experiments
+        print(json.dumps(run_stage4_stage5_experiments(c, out), indent=2))
         return
     if args.command == "prepare":
         qs, _ = prepare(c, out)
@@ -41,13 +45,12 @@ def main():
                 print(f"Saved {len(rows)} observed nodes. Dataset: {c['dataset']['name']}. Output: {out}")
                 return
             rows = run_baseline(c, out)
-            if c["calibration"]["enabled"]:
-                fit_baseline_calibration(rows, out, c["thresholds"], c["evaluation"]["include_wait"])
+        if c["calibration"]["enabled"]:
+            fit_baseline_calibration(rows, out, c["thresholds"], c["evaluation"]["include_wait"])
         if not c["calibration"]["enabled"]:
             from adaptive_qa.pilot import pilot_report
             pilot_report(c, out)
         print(f"Saved {len(rows)} prefix predictions. Dataset: {c['dataset']['name']}. Output: {out}")
-
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@ import json
 import re
 
 PROMPT_VERSION = "qa-v1"
-SUPPORTED_PROMPT_VERSIONS = {"qa-v1", "qa-answer-v2", "qa-answer-v3", "qa-calibrated-v3"}
+SUPPORTED_PROMPT_VERSIONS = {"qa-v1", "qa-answer-v2", "qa-answer-v3", "qa-answer-v4", "qa-calibrated-v3"}
 
 _TARGET_PATTERNS = (
     r"(?:for\s+(?:10|ten)\s+points|ftp)\s*,?\s*(?:name|identify|give(?:\s+the\s+name\s+of)?)\s+(this\s+[^,.?;:]+|these\s+[^,.?;:]+|what\s+[^,.?;:]+|which\s+[^,.?;:]+)",
@@ -23,15 +23,36 @@ def extract_target_hint(question_text):
     return ""
 
 
+def clean_category_from_hint(hint):
+    """Strip leading demonstrative ('this'/'these'/'what'/'which') so the model does not echo 'this novel'."""
+    cleaned = re.sub(r"^(?:this|these|what|which)\s+", "", str(hint or "").strip(), flags=re.IGNORECASE)
+    return cleaned.strip(" '." )
+
+
 def build_prompt(question_text, action="ANSWER", previous_answer="", documents=(), confidence=True, version=PROMPT_VERSION):
     if action not in {"ANSWER", "RETRIEVE", "DELIBERATE"}:
         raise ValueError("Invalid generation action")
     if version not in SUPPORTED_PROMPT_VERSIONS:
         raise ValueError("Unsupported prompt version")
-    if version in {"qa-answer-v2", "qa-answer-v3"} and confidence:
+    if version in {"qa-answer-v2", "qa-answer-v3", "qa-answer-v4"} and confidence:
         raise ValueError(f"{version} requires answer-only output")
 
-    if version in {"qa-answer-v2", "qa-answer-v3", "qa-calibrated-v3"}:
+    if version == "qa-answer-v4":
+        instruction = (
+            "Identify the specific proper name, title, or canonical term described by the quizbowl clues. "
+            "The question may be cut off mid-way; give your best specific guess using only the revealed clues. "
+            "Never output a person, author, artist, composer, character, or example that is already explicitly named "
+            "in the question clues (if the clue describes a work by a named creator, output the title of the work, "
+            "NOT the creator's name). "
+            "Never output a generic placeholder or demonstrative phrase such as 'this novel', 'this painting', "
+            "'this piece', 'these events', 'this country', 'this city', 'this philosopher', or 'unknown'—you must "
+            "always guess a concrete proper name or specific title (1 to 6 words)."
+        )
+        hint = extract_target_hint(question_text)
+        cat = clean_category_from_hint(hint)
+        if cat:
+            instruction += f" Requested entity category: {cat}."
+    elif version in {"qa-answer-v2", "qa-answer-v3", "qa-calibrated-v3"}:
         instruction = (
             "Identify the specific unnamed person, place, work, object, or concept described by the quizbowl clues. "
             "The question may be incomplete. Give your best candidate using only the revealed clues. "
@@ -58,15 +79,15 @@ def build_prompt(question_text, action="ANSWER", previous_answer="", documents=(
     if action == "RETRIEVE":
         instruction += (
             " Use the provided evidence passages only when they directly match the question clues; "
-            "if the retrieved passages are about unrelated topics or people, ignore them completely and answer from the question clues."
+            "if the retrieved passages are about unrelated topics or people, ignore them completely and guess the "
+            "specific proper name or title from the question clues."
         )
 
     schema = '{"answer":"short answer","confidence":0.0}' if confidence else '{"answer":"short answer"}'
-    if version in {"qa-answer-v2", "qa-answer-v3"} or (version == "qa-calibrated-v3" and not confidence):
+    if version in {"qa-answer-v2", "qa-answer-v3", "qa-answer-v4"} or (version == "qa-calibrated-v3" and not confidence):
         instruction += (
-            ' Return exactly one JSON object with a single key named "answer". '
-            'Its value must be a string containing the candidate name or term. '
-            'Do not include a confidence score, explanation, or Markdown fences.'
+            ' Return ONLY a valid JSON object with a single key named "answer" (for example, {"answer": "<specific name>"}). '
+            'Never output a bare string without JSON braces, and do not include a confidence score, explanation, or Markdown fences.'
         )
     elif version == "qa-calibrated-v3":
         instruction += (

@@ -160,24 +160,25 @@ class Stage3Tests(unittest.TestCase):
             self.assertEqual(docs[0]["document_id"], "d1")
             self.assertEqual(docs[0]["title"], "The Gross Clinic")
 
-    def test_corpus_title_selection_covers_all_pilot_questions(self):
+    def test_corpus_title_selection_is_strictly_training_only(self):
         spec = importlib.util.spec_from_file_location("build_wikipedia_corpus", ROOT / "scripts/build_wikipedia_corpus.py")
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
 
-        self.assertEqual(mod.canonical_title("ⅆ"), "Duel")
-        self.assertEqual(mod.canonical_title("THE_Tunnel"), "The Tunnel (novel)")
-        self.assertEqual(mod.canonical_title("Ansichten_eines_Clowns"), "The Clown (novel)")
-        self.assertEqual(mod.canonical_title("New_york"), "New York (state)")
-
         with tempfile.TemporaryDirectory() as d:
-            sel_file = Path(d) / "selection.json"
-            sample_pages = ["4′33″", "Between_the_Acts", "Programming_languages", "The_Gross_Clinic", "ⅆ", "THE_Tunnel", "New_york"]
-            sel_file.write_text(json.dumps({"questions": [{"wikipedia_page": p} for p in sample_pages]}), encoding="utf-8")
-            titles, _ = mod.select_titles(limit=500, selection_file=sel_file)
-            title_set = {t.casefold() for t in titles}
-            for p in sample_pages:
-                self.assertIn(mod.canonical_title(p).casefold(), title_set)
+            train_file = Path(d) / "qanta.train.2021.12.20.json"
+            train_rows = [
+                {"qanta_id": 1, "fold": "train", "page": "Carthage", "text": "q1"},
+                {"qanta_id": 2, "fold": "train", "page": "Carthage", "text": "q2"},
+                {"qanta_id": 3, "fold": "train", "page": "The_Gross_Clinic", "text": "q3"},
+                {"qanta_id": 4, "fold": "dev", "page": "Secret_Dev_Only_Page", "text": "q4"},
+            ]
+            train_file.write_text(json.dumps({"questions": train_rows}), encoding="utf-8")
+            titles, _, freq = mod.select_titles_from_train_only(limit=10, train_path=train_file)
+            self.assertEqual(titles[0], "Carthage")
+            self.assertEqual(freq["Carthage"], 2)
+            self.assertIn("The Gross Clinic", titles)
+            self.assertNotIn("Secret Dev Only Page", titles)
 
 
 if __name__ == '__main__':
