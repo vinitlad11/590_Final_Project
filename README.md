@@ -38,3 +38,10 @@ All 29 unit tests (`tests/test_*.py`) verify data splitting, leakage prevention,
 | `scripts/build_wikipedia_corpus.py` | Strictly training-only top-500 Wikipedia corpus builder |
 | `scripts/run.py` | CLI supporting `prepare`, `estimate`, `baseline`, `collect`, `pilot-report`, and `evaluate` |
 | `src/adaptive_qa/controller/utility.py` | Cost model, `StateCalibrator`, and `LearnedUtilityController` |
+
+## Stage 5 Final Holdout Protocol & Compliance Rules
+
+- **Untouched 100-Question Holdout (`scripts/prepare_stage5_holdout.py`, `configs/stage05_holdout100.yaml`):** Selects 100 untouched QANTA 2021 text-only questions (`60` untouched `train`-fold + `40` untouched `dev`-fold) strictly disjoint from all 50 Stage 3 development questions (`overlap_with_stage3_pilot50 = 0`), frozen with SHA-256 manifests before inference.
+- **Zero Holdout Fitting / Frozen Single-Pass Evaluation:** The post-hoc calibrator (`StateCalibrator`), utility controller (`LearnedUtilityController`), thresholds, and hyperparameters are fit and frozen strictly on the 50-question Stage 3 development trajectories only. No fitting, cross-validation, tuning, or post-hoc modification is performed on the 100-question holdout, which is evaluated once.
+- **Primary Setting vs. Sensitivity Analyses:** Primary evaluation uses `lambda = 0.1` and `R_wrong = -1.0`. Pre-specified alternatives (`lambda in {0.0, 0.05, 0.2, 0.4, 0.8}` and `R_wrong = -2.0`) are reported strictly as sensitivity analyses.
+- **Complete Policy Reporting:** Every policy reports overall accuracy, selective accuracy paired with coverage/abstention rate, retrieval rate, measured token/call costs, and decision utility, alongside leave-one-group-out ablations and error analysis.
